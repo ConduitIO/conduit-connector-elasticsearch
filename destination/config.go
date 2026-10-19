@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"text/template"
 
@@ -52,8 +53,14 @@ type Config struct {
 	Index string `json:"index" default:"{{ index .Metadata \"opencdc.collection\" }}"`
 	// The name of the index's type to write the data to.
 	Type string `json:"type"`
-	// The number of items stored in bulk in the index. The minimum value is `1`, maximum value is `10 000`.
-	BulkSize uint64 `json:"bulkSize" default:"1000"`
+	// Deprecated: use `sdk.batch.size`. The number of items stored in one bulk
+	// request (the minimum value is `1`, the maximum value is `10 000`). This
+	// config was never read in the write path, so its old default of 1000 did
+	// nothing. It is now honored as a backward-compatible alias for
+	// `sdk.batch.size` when explicitly set (non-zero): a pipeline that set it
+	// keeps its intended batch size. It has no default; leave it unset to use
+	// `sdk.batch.size` (default 1000).
+	BulkSize uint64 `json:"bulkSize"`
 	// The maximum number of retries of failed operations. The minimum value is `0` which disabled retry logic. The maximum value is `255.
 	Retries uint8 `json:"retries" default:"0"`
 }
@@ -72,9 +79,33 @@ func (c *Config) Validate(ctx context.Context) error {
 	if err := c.DestinationWithRecordFormat.Validate(ctx); err != nil {
 		return err
 	}
+	if err := c.resolveDeprecatedBulkSize(ctx); err != nil {
+		return err
+	}
 	if _, err := c.IndexFunction(); err != nil {
 		return fmt.Errorf("invalid index name or index function: %w", err)
 	}
+	return nil
+}
+
+// resolveDeprecatedBulkSize maps the deprecated bulkSize config onto
+// sdk.batch.size when it is explicitly set. bulkSize predates destination
+// batching and was never read in the write path, so its old default (1000) did
+// nothing; it now has no default (0 means unset). An explicit value becomes the
+// batch size for backward compatibility: a pipeline that set bulkSize keeps its
+// intended bulk request size. sdk.batch.size is the canonical knob and applies
+// whenever bulkSize is unset.
+func (c *Config) resolveDeprecatedBulkSize(ctx context.Context) error {
+	if c.BulkSize == 0 {
+		return nil
+	}
+	if c.BulkSize > uint64(math.MaxInt) {
+		return fmt.Errorf("bulkSize %d is too large to be used as a batch size", c.BulkSize)
+	}
+	c.BatchSize = int(c.BulkSize)
+	sdk.Logger(ctx).Warn().
+		Uint64("bulkSize", c.BulkSize).
+		Msg("bulkSize is deprecated and will be removed in a future release; set sdk.batch.size instead")
 	return nil
 }
 
