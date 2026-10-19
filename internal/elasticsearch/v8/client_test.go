@@ -15,7 +15,7 @@
 package v8
 
 import (
-	"encoding/json"
+	"bytes"
 	"testing"
 
 	"github.com/conduitio/conduit-commons/opencdc"
@@ -45,13 +45,12 @@ func TestClient_GetClient(t *testing.T) {
 	require.Same(t, esClient, client.GetClient())
 }
 
-func TestClient_PrepareCreateOperation(t *testing.T) {
-	t.Run("Fails when payload could not be prepared", func(t *testing.T) {
-		client := Client{
-			cfg: &configMock{},
-		}
+func TestClient_WriteCreateOperation(t *testing.T) {
+	client := Client{cfg: &configMock{}}
 
-		metadata, payload, err := client.PrepareCreateOperation(sdk.SourceUtil{}.NewRecordCreate(
+	t.Run("Fails when payload could not be prepared", func(t *testing.T) {
+		var w bytes.Buffer
+		err := client.WriteCreateOperation(&w, sdk.SourceUtil{}.NewRecordCreate(
 			nil,
 			nil,
 			nil,
@@ -60,19 +59,32 @@ func TestClient_PrepareCreateOperation(t *testing.T) {
 			},
 		), indexName)
 
-		require.Nil(t, metadata)
-		require.Nil(t, payload)
 		require.EqualError(t, err, "json: unsupported type: complex64")
+	})
+
+	t.Run("Successfully writes create operation", func(t *testing.T) {
+		var w bytes.Buffer
+		err := client.WriteCreateOperation(&w, sdk.SourceUtil{}.NewRecordCreate(
+			nil,
+			nil,
+			nil,
+			opencdc.StructuredData{"foo": "bar"},
+		), indexName)
+
+		require.NoError(t, err)
+		require.Equal(t,
+			`{"create":{"_index":"someIndexName"}}`+"\n"+`{"foo":"bar"}`+"\n",
+			w.String())
 	})
 }
 
-func TestClient_PrepareUpsertOperation(t *testing.T) {
-	t.Run("Fails when payload could not be prepared", func(t *testing.T) {
-		client := Client{
-			cfg: &configMock{},
-		}
+func TestClient_WriteUpsertOperation(t *testing.T) {
+	client := Client{cfg: &configMock{}}
 
-		metadata, payload, err := client.PrepareUpsertOperation(
+	t.Run("Fails when payload could not be prepared", func(t *testing.T) {
+		var w bytes.Buffer
+		err := client.WriteUpsertOperation(
+			&w,
 			"key",
 			sdk.SourceUtil{}.NewRecordUpdate(
 				nil,
@@ -88,13 +100,33 @@ func TestClient_PrepareUpsertOperation(t *testing.T) {
 			indexName,
 		)
 
-		require.Nil(t, metadata)
-		require.Nil(t, payload)
 		require.EqualError(t, err, "json: unsupported type: complex64")
+	})
+
+	t.Run("Successfully writes upsert operation", func(t *testing.T) {
+		var w bytes.Buffer
+		err := client.WriteUpsertOperation(
+			&w,
+			"key",
+			sdk.SourceUtil{}.NewRecordUpdate(
+				nil,
+				nil,
+				nil,
+				opencdc.StructuredData{"foo": "bar"},
+				opencdc.StructuredData{"foo": "baz"},
+			),
+			indexName,
+		)
+
+		require.NoError(t, err)
+		require.Equal(t,
+			`{"update":{"_id":"key","_index":"someIndexName","retry_on_conflict":3}}`+"\n"+
+				`{"doc":{"foo":"baz"},"doc_as_upsert":true}`+"\n",
+			w.String())
 	})
 }
 
-func TestClient_PreparePayloadEmptyWritesNull(t *testing.T) {
+func TestClient_WritePayloadEmptyWritesNull(t *testing.T) {
 	client := Client{cfg: &configMock{}}
 
 	// SDK #411 leaves an empty (zero-length) or nil payload part as absent
@@ -102,61 +134,75 @@ func TestClient_PreparePayloadEmptyWritesNull(t *testing.T) {
 	// must write JSON null, not an empty document, so the record still reaches
 	// Elasticsearch (invariant 3) without inventing data (invariant 6).
 	t.Run("create with empty RawData", func(t *testing.T) {
-		metadata, payload, err := client.PrepareCreateOperation(
+		var w bytes.Buffer
+		err := client.WriteCreateOperation(
+			&w,
 			sdk.SourceUtil{}.NewRecordCreate(nil, nil, nil, opencdc.RawData{}),
 			indexName,
 		)
 		require.NoError(t, err)
-		require.NotNil(t, metadata)
-		require.Equal(t, bulkRequestCreateSource("null"), payload)
+		require.Equal(t,
+			`{"create":{"_index":"someIndexName"}}`+"\n"+"null\n",
+			w.String())
 	})
 
 	t.Run("create with nil payload", func(t *testing.T) {
-		metadata, payload, err := client.PrepareCreateOperation(
+		var w bytes.Buffer
+		err := client.WriteCreateOperation(
+			&w,
 			sdk.SourceUtil{}.NewRecordCreate(nil, nil, nil, nil),
 			indexName,
 		)
 		require.NoError(t, err)
-		require.NotNil(t, metadata)
-		require.Equal(t, bulkRequestCreateSource("null"), payload)
+		require.Equal(t,
+			`{"create":{"_index":"someIndexName"}}`+"\n"+"null\n",
+			w.String())
 	})
 
 	t.Run("upsert with empty RawData", func(t *testing.T) {
-		metadata, payload, err := client.PrepareUpsertOperation(
+		var w bytes.Buffer
+		err := client.WriteUpsertOperation(
+			&w,
 			"key",
 			sdk.SourceUtil{}.NewRecordUpdate(nil, nil, nil, nil, opencdc.RawData{}),
 			indexName,
 		)
 		require.NoError(t, err)
-		require.NotNil(t, metadata)
-		require.Equal(t, bulkRequestOptionalSource{
-			Doc:         json.RawMessage("null"),
-			DocAsUpsert: true,
-		}, payload)
+		require.Equal(t,
+			`{"update":{"_id":"key","_index":"someIndexName","retry_on_conflict":3}}`+"\n"+
+				`{"doc":null,"doc_as_upsert":true}`+"\n",
+			w.String())
 	})
 }
 
-func TestClient_PrepareDeleteOperation(t *testing.T) {
-	t.Run("Successfully prepares delete operation", func(t *testing.T) {
-		client := Client{
-			cfg: &configMock{},
-		}
+func TestClient_WriteUpsertCompactsRawData(t *testing.T) {
+	client := Client{cfg: &configMock{}}
 
-		metadata, err := client.PrepareDeleteOperation(
-			"key",
-			indexName,
-		)
+	// RawData is re-marshaled through json.RawMessage so that insignificant
+	// whitespace is stripped (keeping the bulk request newline-delimited) and
+	// HTML characters are escaped exactly as the previous struct-based
+	// encoding did.
+	var w bytes.Buffer
+	rec := sdk.SourceUtil{}.NewRecordUpdate(nil, nil, nil, nil, opencdc.RawData(`{"x":"<b>&",  "ws" :  1}`))
+	err := client.WriteUpsertOperation(&w, "key", rec, indexName)
+
+	require.NoError(t, err)
+	require.Equal(t,
+		`{"update":{"_id":"key","_index":"someIndexName","retry_on_conflict":3}}`+"\n"+
+			`{"doc":{"x":"\u003cb\u003e\u0026","ws":1},"doc_as_upsert":true}`+"\n",
+		w.String())
+}
+
+func TestClient_WriteDeleteOperation(t *testing.T) {
+	client := Client{cfg: &configMock{}}
+
+	t.Run("Successfully writes delete operation", func(t *testing.T) {
+		var w bytes.Buffer
+		err := client.WriteDeleteOperation(&w, "key", indexName)
 
 		require.NoError(t, err)
-		require.NotNil(t, metadata)
-
-		expectedMetadata := bulkRequestActionAndMetadata{
-			Delete: &bulkRequestDeleteAction{
-				ID:    "key",
-				Index: indexName,
-			},
-		}
-
-		require.Equal(t, expectedMetadata, metadata)
+		require.Equal(t,
+			`{"delete":{"_id":"key","_index":"someIndexName"}}`+"\n",
+			w.String())
 	})
 }

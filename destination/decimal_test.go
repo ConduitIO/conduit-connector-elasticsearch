@@ -36,9 +36,9 @@ func bulkRecorder(t *testing.T, bodies *[]string) *clientMock {
 	t.Helper()
 	es := &v8.Client{}
 	return &clientMock{
-		PrepareCreateOperationFunc: es.PrepareCreateOperation,
-		PrepareUpsertOperationFunc: es.PrepareUpsertOperation,
-		PrepareDeleteOperationFunc: es.PrepareDeleteOperation,
+		WriteCreateOperationFunc: es.WriteCreateOperation,
+		WriteUpsertOperationFunc: es.WriteUpsertOperation,
+		WriteDeleteOperationFunc: es.WriteDeleteOperation,
 		BulkFunc: func(_ context.Context, reader io.Reader) (io.ReadCloser, error) {
 			body, err := io.ReadAll(reader)
 			require.NoError(t, err)

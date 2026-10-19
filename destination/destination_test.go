@@ -66,9 +66,9 @@ func TestDestination_Write(t *testing.T) {
 		n, err := destination.Write(context.Background(), nil)
 		require.Equal(t, 0, n)
 		require.NoError(t, err)
-		require.Len(t, esClientMock.PrepareCreateOperationCalls(), 0)
-		require.Len(t, esClientMock.PrepareUpsertOperationCalls(), 0)
-		require.Len(t, esClientMock.PrepareDeleteOperationCalls(), 0)
+		require.Len(t, esClientMock.WriteCreateOperationCalls(), 0)
+		require.Len(t, esClientMock.WriteUpsertOperationCalls(), 0)
+		require.Len(t, esClientMock.WriteDeleteOperationCalls(), 0)
 		require.Len(t, esClientMock.BulkCalls(), 0)
 	})
 
@@ -79,8 +79,11 @@ func TestDestination_Write(t *testing.T) {
 		)
 
 		esClientMock := clientMock{
-			PrepareCreateOperationFunc: func(_ opencdc.Record, _ string) (interface{}, interface{}, error) {
-				return operationMetadata, operationPayload, nil
+			WriteCreateOperationFunc: func(w *bytes.Buffer, _ opencdc.Record, _ string) error {
+				if err := json.NewEncoder(w).Encode(operationMetadata); err != nil {
+					return err
+				}
+				return json.NewEncoder(w).Encode(operationPayload)
 			},
 
 			BulkFunc: func(_ context.Context, reader io.Reader) (io.ReadCloser, error) {
@@ -131,9 +134,9 @@ func TestDestination_Write(t *testing.T) {
 		)
 		require.Equal(t, 1, n)
 		require.NoError(t, err)
-		require.Len(t, esClientMock.PrepareCreateOperationCalls(), 1)
-		require.Len(t, esClientMock.PrepareUpsertOperationCalls(), 0)
-		require.Len(t, esClientMock.PrepareDeleteOperationCalls(), 0)
+		require.Len(t, esClientMock.WriteCreateOperationCalls(), 1)
+		require.Len(t, esClientMock.WriteUpsertOperationCalls(), 0)
+		require.Len(t, esClientMock.WriteDeleteOperationCalls(), 0)
 		require.Len(t, esClientMock.BulkCalls(), 1)
 	})
 }
@@ -300,8 +303,8 @@ func TestDestination_Write_RequestFailureReportsNothingWritten(t *testing.T) {
 
 	t.Run("request cannot be prepared", func(t *testing.T) {
 		d := newTestDestination(t, nil)
-		d.client.(*clientMock).PrepareUpsertOperationFunc = func(string, opencdc.Record, string) (interface{}, interface{}, error) {
-			return nil, nil, fmt.Errorf("unsupported payload")
+		d.client.(*clientMock).WriteUpsertOperationFunc = func(*bytes.Buffer, string, opencdc.Record, string) error {
+			return fmt.Errorf("unsupported payload")
 		}
 
 		n, err := d.Write(context.Background(), testRecords(3))
@@ -319,8 +322,11 @@ func newTestDestination(t *testing.T, items []bulkResponseItems) *Destination {
 	return &Destination{
 		getIndexName: func(opencdc.Record) (string, error) { return indexName, nil },
 		client: &clientMock{
-			PrepareUpsertOperationFunc: func(key string, _ opencdc.Record, _ string) (interface{}, interface{}, error) {
-				return map[string]string{"key": key}, map[string]string{"doc": key}, nil
+			WriteUpsertOperationFunc: func(w *bytes.Buffer, key string, _ opencdc.Record, _ string) error {
+				if err := json.NewEncoder(w).Encode(map[string]string{"key": key}); err != nil {
+					return err
+				}
+				return json.NewEncoder(w).Encode(map[string]string{"doc": key})
 			},
 			BulkFunc: func(context.Context, io.Reader) (io.ReadCloser, error) {
 				data, err := json.Marshal(bulkResponse{Errors: true, Items: items})
