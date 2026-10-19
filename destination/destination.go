@@ -21,14 +21,45 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/conduitio/conduit-connector-elasticsearch/internal/elasticsearch"
 	sdk "github.com/conduitio/conduit-connector-sdk"
 )
 
+// Default batching: the SDK buffers records into batches of sdk.batch.size
+// records (default 1000) and flushes an incomplete batch after sdk.batch.delay
+// (default 1s), so the destination sends one _bulk request per batch instead of
+// one per record. Without batching every record is its own _bulk request and
+// pays the full HTTP round trip and request setup per record; a batch of 1000
+// amortizes both. BatchDelay bounds the latency of an incomplete batch on a
+// slow pipeline: a record is flushed at most this long after it arrives.
+//
+// Batching never weakens Invariant 1: the SDK acks a record only after the
+// _bulk request of its batch succeeded, and a batch that is not yet flushed is
+// redelivered on restart (at-least-once, Invariant 3).
+const (
+	defaultBatchSize  = 1000
+	defaultBatchDelay = 1 * time.Second
+)
+
 func NewDestination() sdk.Destination {
-	return sdk.DestinationWithMiddleware(&Destination{})
+	// The batching defaults are set on the config before the SDK parses it, so
+	// they become the defaults of sdk.batch.size and sdk.batch.delay (the SDK's
+	// own default is 0, i.e. batching off: one _bulk request per record). A user
+	// can still override them, or set sdk.batch.size to 0 to disable batching.
+	d := &Destination{
+		config: Config{
+			DefaultDestinationMiddleware: sdk.DefaultDestinationMiddleware{
+				DestinationWithBatch: sdk.DestinationWithBatch{
+					BatchSize:  defaultBatchSize,
+					BatchDelay: defaultBatchDelay,
+				},
+			},
+		},
+	}
+	return sdk.DestinationWithMiddleware(d)
 }
 
 type Destination struct {

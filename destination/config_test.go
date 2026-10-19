@@ -15,6 +15,8 @@
 package destination
 
 import (
+	"context"
+	"math"
 	"testing"
 
 	"github.com/conduitio/conduit-commons/opencdc"
@@ -58,6 +60,35 @@ func TestConfig_Getters(t *testing.T) {
 	require.Equal(t, serviceToken, config.GetServiceToken())
 	require.Equal(t, certificateFingerprint, config.GetCertificateFingerprint())
 	require.Equal(t, indexType, config.GetType())
+}
+
+// TestConfig_resolveDeprecatedBulkSize covers the deprecated bulkSize alias:
+// unset it leaves sdk.batch.size alone, an explicit value becomes the batch
+// size, and a value that does not fit in an int is rejected rather than wrapped
+// (int is 32-bit on linux/386, so this guard is reachable there).
+func TestConfig_resolveDeprecatedBulkSize(t *testing.T) {
+	t.Run("unset leaves batch size", func(t *testing.T) {
+		c := &Config{
+			DefaultDestinationMiddleware: sdk.DefaultDestinationMiddleware{
+				DestinationWithBatch: sdk.DestinationWithBatch{BatchSize: 1000},
+			},
+		}
+		require.NoError(t, c.resolveDeprecatedBulkSize(context.Background()))
+		require.Equal(t, 1000, c.BatchSize)
+	})
+
+	t.Run("set maps to batch size", func(t *testing.T) {
+		c := &Config{BulkSize: 500}
+		require.NoError(t, c.resolveDeprecatedBulkSize(context.Background()))
+		require.Equal(t, 500, c.BatchSize)
+	})
+
+	t.Run("too large is rejected", func(t *testing.T) {
+		c := &Config{BulkSize: math.MaxUint64}
+		err := c.resolveDeprecatedBulkSize(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too large to be used as a batch size")
+	})
 }
 
 func TestConfig_IndexFunction(t *testing.T) {
