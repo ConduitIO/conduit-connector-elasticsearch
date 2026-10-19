@@ -15,6 +15,7 @@
 package elasticsearch
 
 import (
+	"bytes"
 	"context"
 	"io"
 
@@ -32,14 +33,18 @@ type Client interface {
 	// See: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
 	Bulk(ctx context.Context, reader io.Reader) (io.ReadCloser, error)
 
-	// PrepareCreateOperation prepares insert operation definition for Bulk API query.
-	PrepareCreateOperation(item opencdc.Record, index string) (metadata interface{}, payload interface{}, err error)
+	// WriteCreateOperation appends the create (index before 7.0) action and
+	// source lines for a keyless record to w as two newline-delimited JSON
+	// lines.
+	WriteCreateOperation(w *bytes.Buffer, item opencdc.Record, index string) error
 
-	// PrepareUpsertOperation prepares upsert operation definition for Bulk API query.
-	PrepareUpsertOperation(key string, item opencdc.Record, index string) (metadata interface{}, payload interface{}, err error)
+	// WriteUpsertOperation appends the update action and source lines for a
+	// keyed record to w as two newline-delimited JSON lines.
+	WriteUpsertOperation(w *bytes.Buffer, key string, item opencdc.Record, index string) error
 
-	// PrepareDeleteOperation prepares delete operation definition for Bulk API query.
-	PrepareDeleteOperation(key string, index string) (metadata interface{}, err error)
+	// WriteDeleteOperation appends the delete action line for a keyed record
+	// to w as one newline-delimited JSON line.
+	WriteDeleteOperation(w *bytes.Buffer, key string, index string) error
 
 	// Search calls the elasticsearch search api and retuns SearchResponse read from an index.
 	Search(ctx context.Context, request *api.SearchRequest) (*api.SearchResponse, error)

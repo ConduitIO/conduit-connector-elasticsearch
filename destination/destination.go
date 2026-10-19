@@ -201,9 +201,19 @@ func (d *Destination) Teardown(context.Context) error {
 	return nil // No close routine needed
 }
 
+// bulkLineEstimate is the conservative per-record byte estimate used to
+// pre-size the bulk request buffer. It covers the action line plus the source
+// envelope; the buffer grows further if payloads are larger. See
+// prepareBulkRequestPayload.
+const bulkLineEstimate = 128
+
 // prepareBulkRequestPayload converts all pending operations into a valid Elasticsearch Bulk API request.
 func (d *Destination) prepareBulkRequestPayload(records []opencdc.Record) (*bytes.Buffer, error) {
 	data := &bytes.Buffer{}
+	// Each record contributes an action line and a source line. Grow once with
+	// a conservative per-record estimate so the buffer does not repeatedly
+	// reallocate (and zero) as it grows to the final size.
+	data.Grow(len(records) * bulkLineEstimate)
 
 	for _, record := range records {
 		index, err := d.getIndexName(record)
@@ -222,18 +232,18 @@ func (d *Destination) prepareBulkRequestPayload(records []opencdc.Record) (*byte
 		}
 		switch {
 		case key == "":
-			if err := d.writeInsertOperation(data, record, index); err != nil {
-				return nil, err
+			if err := d.client.WriteCreateOperation(data, record, index); err != nil {
+				return nil, fmt.Errorf("failed to prepare metadata: %w", err)
 			}
 
 		case op == opencdc.OperationSnapshot || op == opencdc.OperationCreate || op == opencdc.OperationUpdate:
-			if err := d.writeUpsertOperation(key, data, record, index); err != nil {
-				return nil, err
+			if err := d.client.WriteUpsertOperation(data, key, record, index); err != nil {
+				return nil, fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
 			}
 
 		case op == opencdc.OperationDelete:
-			if err := d.writeDeleteOperation(key, data, index); err != nil {
-				return nil, err
+			if err := d.client.WriteDeleteOperation(data, key, index); err != nil {
+				return nil, fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
 			}
 
 		default:
@@ -242,70 +252,6 @@ func (d *Destination) prepareBulkRequestPayload(records []opencdc.Record) (*byte
 	}
 
 	return data, nil
-}
-
-// writeInsertOperation adds create new Document without ID request into Bulk API request.
-func (d *Destination) writeInsertOperation(data *bytes.Buffer, item opencdc.Record, index string) error {
-	jsonEncoder := json.NewEncoder(data)
-
-	// Prepare data
-	metadata, payload, err := d.client.PrepareCreateOperation(item, index)
-	if err != nil {
-		return fmt.Errorf("failed to prepare metadata: %w", err)
-	}
-
-	// Write metadata
-	if err := jsonEncoder.Encode(metadata); err != nil {
-		return fmt.Errorf("failed to prepare metadata: %w", err)
-	}
-
-	// Write payload
-	if err := jsonEncoder.Encode(payload); err != nil {
-		return fmt.Errorf("failed to prepare data: %w", err)
-	}
-
-	return nil
-}
-
-// writeUpsertOperation adds upsert a Document with ID request into Bulk API request.
-func (d *Destination) writeUpsertOperation(key string, data *bytes.Buffer, item opencdc.Record, index string) error {
-	jsonEncoder := json.NewEncoder(data)
-
-	// Prepare data
-	metadata, payload, err := d.client.PrepareUpsertOperation(key, item, index)
-	if err != nil {
-		return fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
-	}
-
-	// Write metadata
-	if err := jsonEncoder.Encode(metadata); err != nil {
-		return fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
-	}
-
-	// Write payload
-	if err := jsonEncoder.Encode(payload); err != nil {
-		return fmt.Errorf("failed to prepare data with key=%s: %w", key, err)
-	}
-
-	return nil
-}
-
-// writeDeleteOperation adds delete a Document by ID request into Bulk API request.
-func (d *Destination) writeDeleteOperation(key string, data *bytes.Buffer, index string) error {
-	jsonEncoder := json.NewEncoder(data)
-
-	// Prepare data
-	metadata, err := d.client.PrepareDeleteOperation(key, index)
-	if err != nil {
-		return fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
-	}
-
-	// Write metadata
-	if err := jsonEncoder.Encode(metadata); err != nil {
-		return fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
-	}
-
-	return nil
 }
 
 // executeBulkRequest executes Bulk API request and parses the response.

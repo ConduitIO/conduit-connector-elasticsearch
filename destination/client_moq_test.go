@@ -4,6 +4,7 @@
 package destination
 
 import (
+	"bytes"
 	"context"
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/conduitio/conduit-connector-elasticsearch/internal/elasticsearch/api"
@@ -27,17 +28,17 @@ var _ client = &clientMock{}
 //			PingFunc: func(ctx context.Context) error {
 //				panic("mock out the Ping method")
 //			},
-//			PrepareCreateOperationFunc: func(item opencdc.Record, index string) (interface{}, interface{}, error) {
-//				panic("mock out the PrepareCreateOperation method")
-//			},
-//			PrepareDeleteOperationFunc: func(key string, index string) (interface{}, error) {
-//				panic("mock out the PrepareDeleteOperation method")
-//			},
-//			PrepareUpsertOperationFunc: func(key string, item opencdc.Record, index string) (interface{}, interface{}, error) {
-//				panic("mock out the PrepareUpsertOperation method")
-//			},
 //			SearchFunc: func(ctx context.Context, request *api.SearchRequest) (*api.SearchResponse, error) {
 //				panic("mock out the Search method")
+//			},
+//			WriteCreateOperationFunc: func(w *bytes.Buffer, item opencdc.Record, index string) error {
+//				panic("mock out the WriteCreateOperation method")
+//			},
+//			WriteDeleteOperationFunc: func(w *bytes.Buffer, key string, index string) error {
+//				panic("mock out the WriteDeleteOperation method")
+//			},
+//			WriteUpsertOperationFunc: func(w *bytes.Buffer, key string, item opencdc.Record, index string) error {
+//				panic("mock out the WriteUpsertOperation method")
 //			},
 //		}
 //
@@ -52,17 +53,17 @@ type clientMock struct {
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) error
 
-	// PrepareCreateOperationFunc mocks the PrepareCreateOperation method.
-	PrepareCreateOperationFunc func(item opencdc.Record, index string) (interface{}, interface{}, error)
-
-	// PrepareDeleteOperationFunc mocks the PrepareDeleteOperation method.
-	PrepareDeleteOperationFunc func(key string, index string) (interface{}, error)
-
-	// PrepareUpsertOperationFunc mocks the PrepareUpsertOperation method.
-	PrepareUpsertOperationFunc func(key string, item opencdc.Record, index string) (interface{}, interface{}, error)
-
 	// SearchFunc mocks the Search method.
 	SearchFunc func(ctx context.Context, request *api.SearchRequest) (*api.SearchResponse, error)
+
+	// WriteCreateOperationFunc mocks the WriteCreateOperation method.
+	WriteCreateOperationFunc func(w *bytes.Buffer, item opencdc.Record, index string) error
+
+	// WriteDeleteOperationFunc mocks the WriteDeleteOperation method.
+	WriteDeleteOperationFunc func(w *bytes.Buffer, key string, index string) error
+
+	// WriteUpsertOperationFunc mocks the WriteUpsertOperation method.
+	WriteUpsertOperationFunc func(w *bytes.Buffer, key string, item opencdc.Record, index string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -78,29 +79,6 @@ type clientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// PrepareCreateOperation holds details about calls to the PrepareCreateOperation method.
-		PrepareCreateOperation []struct {
-			// Item is the item argument value.
-			Item opencdc.Record
-			// Index is the index argument value.
-			Index string
-		}
-		// PrepareDeleteOperation holds details about calls to the PrepareDeleteOperation method.
-		PrepareDeleteOperation []struct {
-			// Key is the key argument value.
-			Key string
-			// Index is the index argument value.
-			Index string
-		}
-		// PrepareUpsertOperation holds details about calls to the PrepareUpsertOperation method.
-		PrepareUpsertOperation []struct {
-			// Key is the key argument value.
-			Key string
-			// Item is the item argument value.
-			Item opencdc.Record
-			// Index is the index argument value.
-			Index string
-		}
 		// Search holds details about calls to the Search method.
 		Search []struct {
 			// Ctx is the ctx argument value.
@@ -108,13 +86,42 @@ type clientMock struct {
 			// Request is the request argument value.
 			Request *api.SearchRequest
 		}
+		// WriteCreateOperation holds details about calls to the WriteCreateOperation method.
+		WriteCreateOperation []struct {
+			// W is the w argument value.
+			W *bytes.Buffer
+			// Item is the item argument value.
+			Item opencdc.Record
+			// Index is the index argument value.
+			Index string
+		}
+		// WriteDeleteOperation holds details about calls to the WriteDeleteOperation method.
+		WriteDeleteOperation []struct {
+			// W is the w argument value.
+			W *bytes.Buffer
+			// Key is the key argument value.
+			Key string
+			// Index is the index argument value.
+			Index string
+		}
+		// WriteUpsertOperation holds details about calls to the WriteUpsertOperation method.
+		WriteUpsertOperation []struct {
+			// W is the w argument value.
+			W *bytes.Buffer
+			// Key is the key argument value.
+			Key string
+			// Item is the item argument value.
+			Item opencdc.Record
+			// Index is the index argument value.
+			Index string
+		}
 	}
-	lockBulk                   sync.RWMutex
-	lockPing                   sync.RWMutex
-	lockPrepareCreateOperation sync.RWMutex
-	lockPrepareDeleteOperation sync.RWMutex
-	lockPrepareUpsertOperation sync.RWMutex
-	lockSearch                 sync.RWMutex
+	lockBulk                 sync.RWMutex
+	lockPing                 sync.RWMutex
+	lockSearch               sync.RWMutex
+	lockWriteCreateOperation sync.RWMutex
+	lockWriteDeleteOperation sync.RWMutex
+	lockWriteUpsertOperation sync.RWMutex
 }
 
 // Bulk calls BulkFunc.
@@ -185,118 +192,6 @@ func (mock *clientMock) PingCalls() []struct {
 	return calls
 }
 
-// PrepareCreateOperation calls PrepareCreateOperationFunc.
-func (mock *clientMock) PrepareCreateOperation(item opencdc.Record, index string) (interface{}, interface{}, error) {
-	if mock.PrepareCreateOperationFunc == nil {
-		panic("clientMock.PrepareCreateOperationFunc: method is nil but client.PrepareCreateOperation was just called")
-	}
-	callInfo := struct {
-		Item  opencdc.Record
-		Index string
-	}{
-		Item:  item,
-		Index: index,
-	}
-	mock.lockPrepareCreateOperation.Lock()
-	mock.calls.PrepareCreateOperation = append(mock.calls.PrepareCreateOperation, callInfo)
-	mock.lockPrepareCreateOperation.Unlock()
-	return mock.PrepareCreateOperationFunc(item, index)
-}
-
-// PrepareCreateOperationCalls gets all the calls that were made to PrepareCreateOperation.
-// Check the length with:
-//
-//	len(mockedclient.PrepareCreateOperationCalls())
-func (mock *clientMock) PrepareCreateOperationCalls() []struct {
-	Item  opencdc.Record
-	Index string
-} {
-	var calls []struct {
-		Item  opencdc.Record
-		Index string
-	}
-	mock.lockPrepareCreateOperation.RLock()
-	calls = mock.calls.PrepareCreateOperation
-	mock.lockPrepareCreateOperation.RUnlock()
-	return calls
-}
-
-// PrepareDeleteOperation calls PrepareDeleteOperationFunc.
-func (mock *clientMock) PrepareDeleteOperation(key string, index string) (interface{}, error) {
-	if mock.PrepareDeleteOperationFunc == nil {
-		panic("clientMock.PrepareDeleteOperationFunc: method is nil but client.PrepareDeleteOperation was just called")
-	}
-	callInfo := struct {
-		Key   string
-		Index string
-	}{
-		Key:   key,
-		Index: index,
-	}
-	mock.lockPrepareDeleteOperation.Lock()
-	mock.calls.PrepareDeleteOperation = append(mock.calls.PrepareDeleteOperation, callInfo)
-	mock.lockPrepareDeleteOperation.Unlock()
-	return mock.PrepareDeleteOperationFunc(key, index)
-}
-
-// PrepareDeleteOperationCalls gets all the calls that were made to PrepareDeleteOperation.
-// Check the length with:
-//
-//	len(mockedclient.PrepareDeleteOperationCalls())
-func (mock *clientMock) PrepareDeleteOperationCalls() []struct {
-	Key   string
-	Index string
-} {
-	var calls []struct {
-		Key   string
-		Index string
-	}
-	mock.lockPrepareDeleteOperation.RLock()
-	calls = mock.calls.PrepareDeleteOperation
-	mock.lockPrepareDeleteOperation.RUnlock()
-	return calls
-}
-
-// PrepareUpsertOperation calls PrepareUpsertOperationFunc.
-func (mock *clientMock) PrepareUpsertOperation(key string, item opencdc.Record, index string) (interface{}, interface{}, error) {
-	if mock.PrepareUpsertOperationFunc == nil {
-		panic("clientMock.PrepareUpsertOperationFunc: method is nil but client.PrepareUpsertOperation was just called")
-	}
-	callInfo := struct {
-		Key   string
-		Item  opencdc.Record
-		Index string
-	}{
-		Key:   key,
-		Item:  item,
-		Index: index,
-	}
-	mock.lockPrepareUpsertOperation.Lock()
-	mock.calls.PrepareUpsertOperation = append(mock.calls.PrepareUpsertOperation, callInfo)
-	mock.lockPrepareUpsertOperation.Unlock()
-	return mock.PrepareUpsertOperationFunc(key, item, index)
-}
-
-// PrepareUpsertOperationCalls gets all the calls that were made to PrepareUpsertOperation.
-// Check the length with:
-//
-//	len(mockedclient.PrepareUpsertOperationCalls())
-func (mock *clientMock) PrepareUpsertOperationCalls() []struct {
-	Key   string
-	Item  opencdc.Record
-	Index string
-} {
-	var calls []struct {
-		Key   string
-		Item  opencdc.Record
-		Index string
-	}
-	mock.lockPrepareUpsertOperation.RLock()
-	calls = mock.calls.PrepareUpsertOperation
-	mock.lockPrepareUpsertOperation.RUnlock()
-	return calls
-}
-
 // Search calls SearchFunc.
 func (mock *clientMock) Search(ctx context.Context, request *api.SearchRequest) (*api.SearchResponse, error) {
 	if mock.SearchFunc == nil {
@@ -330,5 +225,129 @@ func (mock *clientMock) SearchCalls() []struct {
 	mock.lockSearch.RLock()
 	calls = mock.calls.Search
 	mock.lockSearch.RUnlock()
+	return calls
+}
+
+// WriteCreateOperation calls WriteCreateOperationFunc.
+func (mock *clientMock) WriteCreateOperation(w *bytes.Buffer, item opencdc.Record, index string) error {
+	if mock.WriteCreateOperationFunc == nil {
+		panic("clientMock.WriteCreateOperationFunc: method is nil but client.WriteCreateOperation was just called")
+	}
+	callInfo := struct {
+		W     *bytes.Buffer
+		Item  opencdc.Record
+		Index string
+	}{
+		W:     w,
+		Item:  item,
+		Index: index,
+	}
+	mock.lockWriteCreateOperation.Lock()
+	mock.calls.WriteCreateOperation = append(mock.calls.WriteCreateOperation, callInfo)
+	mock.lockWriteCreateOperation.Unlock()
+	return mock.WriteCreateOperationFunc(w, item, index)
+}
+
+// WriteCreateOperationCalls gets all the calls that were made to WriteCreateOperation.
+// Check the length with:
+//
+//	len(mockedclient.WriteCreateOperationCalls())
+func (mock *clientMock) WriteCreateOperationCalls() []struct {
+	W     *bytes.Buffer
+	Item  opencdc.Record
+	Index string
+} {
+	var calls []struct {
+		W     *bytes.Buffer
+		Item  opencdc.Record
+		Index string
+	}
+	mock.lockWriteCreateOperation.RLock()
+	calls = mock.calls.WriteCreateOperation
+	mock.lockWriteCreateOperation.RUnlock()
+	return calls
+}
+
+// WriteDeleteOperation calls WriteDeleteOperationFunc.
+func (mock *clientMock) WriteDeleteOperation(w *bytes.Buffer, key string, index string) error {
+	if mock.WriteDeleteOperationFunc == nil {
+		panic("clientMock.WriteDeleteOperationFunc: method is nil but client.WriteDeleteOperation was just called")
+	}
+	callInfo := struct {
+		W     *bytes.Buffer
+		Key   string
+		Index string
+	}{
+		W:     w,
+		Key:   key,
+		Index: index,
+	}
+	mock.lockWriteDeleteOperation.Lock()
+	mock.calls.WriteDeleteOperation = append(mock.calls.WriteDeleteOperation, callInfo)
+	mock.lockWriteDeleteOperation.Unlock()
+	return mock.WriteDeleteOperationFunc(w, key, index)
+}
+
+// WriteDeleteOperationCalls gets all the calls that were made to WriteDeleteOperation.
+// Check the length with:
+//
+//	len(mockedclient.WriteDeleteOperationCalls())
+func (mock *clientMock) WriteDeleteOperationCalls() []struct {
+	W     *bytes.Buffer
+	Key   string
+	Index string
+} {
+	var calls []struct {
+		W     *bytes.Buffer
+		Key   string
+		Index string
+	}
+	mock.lockWriteDeleteOperation.RLock()
+	calls = mock.calls.WriteDeleteOperation
+	mock.lockWriteDeleteOperation.RUnlock()
+	return calls
+}
+
+// WriteUpsertOperation calls WriteUpsertOperationFunc.
+func (mock *clientMock) WriteUpsertOperation(w *bytes.Buffer, key string, item opencdc.Record, index string) error {
+	if mock.WriteUpsertOperationFunc == nil {
+		panic("clientMock.WriteUpsertOperationFunc: method is nil but client.WriteUpsertOperation was just called")
+	}
+	callInfo := struct {
+		W     *bytes.Buffer
+		Key   string
+		Item  opencdc.Record
+		Index string
+	}{
+		W:     w,
+		Key:   key,
+		Item:  item,
+		Index: index,
+	}
+	mock.lockWriteUpsertOperation.Lock()
+	mock.calls.WriteUpsertOperation = append(mock.calls.WriteUpsertOperation, callInfo)
+	mock.lockWriteUpsertOperation.Unlock()
+	return mock.WriteUpsertOperationFunc(w, key, item, index)
+}
+
+// WriteUpsertOperationCalls gets all the calls that were made to WriteUpsertOperation.
+// Check the length with:
+//
+//	len(mockedclient.WriteUpsertOperationCalls())
+func (mock *clientMock) WriteUpsertOperationCalls() []struct {
+	W     *bytes.Buffer
+	Key   string
+	Item  opencdc.Record
+	Index string
+} {
+	var calls []struct {
+		W     *bytes.Buffer
+		Key   string
+		Item  opencdc.Record
+		Index string
+	}
+	mock.lockWriteUpsertOperation.RLock()
+	calls = mock.calls.WriteUpsertOperation
+	mock.lockWriteUpsertOperation.RUnlock()
 	return calls
 }

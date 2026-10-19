@@ -15,6 +15,7 @@
 package v5
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"io"
 
 	"github.com/conduitio/conduit-commons/opencdc"
+	"github.com/conduitio/conduit-connector-elasticsearch/internal/elasticsearch/jsonutil"
 
 	"github.com/elastic/go-elasticsearch/v5"
 )
@@ -95,62 +97,71 @@ func (c *Client) Bulk(ctx context.Context, reader io.Reader) (io.ReadCloser, err
 	return result.Body, nil
 }
 
-func (c *Client) PrepareCreateOperation(item opencdc.Record, index string) (interface{}, interface{}, error) {
-	// Prepare metadata
-	metadata := bulkRequestActionAndMetadata{
-		Index: &bulkRequestIndexAction{
-			Index: index,
-			Type:  c.cfg.GetType(),
-		},
-	}
-
-	// Prepare payload
+// WriteCreateOperation appends the index action and source lines for a
+// keyless record to w as two newline-delimited JSON lines. Elasticsearch 5
+// indexes new documents with the `index` action and requires a `_type`.
+func (c *Client) WriteCreateOperation(w *bytes.Buffer, item opencdc.Record, index string) error {
 	payload, err := preparePayload(&item)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	return metadata, bulkRequestCreateSource(payload), nil
+	w.WriteString(`{"index":{"_index":`)
+	jsonutil.WriteString(w, index)
+	w.WriteString(`,"_type":`)
+	jsonutil.WriteString(w, c.cfg.GetType())
+	w.WriteString("}}\n")
+	w.Write(payload)
+	w.WriteByte('\n')
+
+	return nil
 }
 
-func (c *Client) PrepareUpsertOperation(key string, item opencdc.Record, index string) (interface{}, interface{}, error) {
-	// Prepare metadata
-	metadata := bulkRequestActionAndMetadata{
-		Update: &bulkRequestUpdateAction{
-			ID:    key,
-			Index: index,
-			Type:  c.cfg.GetType(),
-		},
-	}
-
-	// Prepare payload
-	var err error
-
-	payload := bulkRequestUpdateSource{
-		Doc:         nil,
-		DocAsUpsert: true,
-	}
-
-	payload.Doc, err = preparePayload(&item)
+// WriteUpsertOperation appends the update action and source lines for a keyed
+// record to w as two newline-delimited JSON lines.
+func (c *Client) WriteUpsertOperation(w *bytes.Buffer, key string, item opencdc.Record, index string) error {
+	payload, err := preparePayload(&item)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	return metadata, payload, nil
+	w.WriteString(`{"update":{"_id":`)
+	jsonutil.WriteString(w, key)
+	w.WriteString(`,"_index":`)
+	jsonutil.WriteString(w, index)
+	w.WriteString(`,"_type":`)
+	jsonutil.WriteString(w, c.cfg.GetType())
+	w.WriteString("}}\n" + `{"doc":`)
+	w.Write(payload)
+	w.WriteString(`,"doc_as_upsert":true}` + "\n")
+
+	return nil
 }
 
-func (c *Client) PrepareDeleteOperation(key string, index string) (interface{}, error) {
-	return bulkRequestActionAndMetadata{
-		Delete: &bulkRequestDeleteAction{
-			ID:    key,
-			Index: index,
-			Type:  c.cfg.GetType(),
-		},
-	}, nil
+// WriteDeleteOperation appends the delete action line for a keyed record to w
+// as one newline-delimited JSON line.
+func (c *Client) WriteDeleteOperation(w *bytes.Buffer, key string, index string) error {
+	w.WriteString(`{"delete":{"_id":`)
+	jsonutil.WriteString(w, key)
+	w.WriteString(`,"_index":`)
+	jsonutil.WriteString(w, index)
+	w.WriteString(`,"_type":`)
+	jsonutil.WriteString(w, c.cfg.GetType())
+	w.WriteString("}}\n")
+
+	return nil
 }
 
-// preparePayload encodes Record's payload as JSON.
-func preparePayload(item *opencdc.Record) (json.RawMessage, error) {
+// preparePayload encodes Record's payload as JSON, ready to be embedded in a
+// bulk action's source line.
+//
+// StructuredData is marshaled with encoding/json, which is already compact and
+// HTML escaped. RawData is compacted so that invalid JSON is rejected before
+// anything is sent (invariant 6: never silently mangle) and insignificant
+// whitespace — including newlines that would break the newline-delimited bulk
+// framing — is stripped. An absent payload is written as JSON null, the
+// faithful encoding (invariant 3), so the record keeps flowing.
+func preparePayload(item *opencdc.Record) ([]byte, error) {
 	if item.Payload.After == nil {
 		// Invariant 3: an absent payload still has to be written. JSON null is
 		// the faithful encoding and keeps the record flowing (never skip).
@@ -170,7 +181,14 @@ func preparePayload(item *opencdc.Record) (json.RawMessage, error) {
 			// drops the record.
 			return []byte("null"), nil
 		}
-		// Nothing more can be done, we can trust the source to provide valid JSON
-		return payload, nil
+		// Re-marshal the raw bytes as a json.RawMessage: this validates the
+		// JSON and strips insignificant whitespace (including newlines that
+		// would break the newline-delimited framing) exactly as the previous
+		// struct-based encoding did, so the emitted bytes are unchanged.
+		compacted, err := json.Marshal(json.RawMessage(payload))
+		if err != nil {
+			return nil, fmt.Errorf("payload is not valid JSON: %w", err)
+		}
+		return compacted, nil
 	}
 }
