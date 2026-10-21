@@ -198,20 +198,26 @@ func (d *Destination) Write(ctx context.Context, records []opencdc.Record) (int,
 		// the SDK ack the failed record and lose it (#153).
 		if itemResponse.Error == nil {
 			return n, fmt.Errorf(
-				"item with key=%s %s failure: unknown error status: %d",
-				itemResponse.ID,
+				"item with key_hash=%s %s failure: unknown error status: %d",
+				hashOf(itemResponse.ID),
 				operationType,
 				itemResponse.Status,
 			)
 		}
 
+		// The reason and caused_by texts are Elasticsearch's, and for mapping
+		// errors they quote the offending field value ("Preview of field's
+		// value: ..."), so only their size and a hash are reported. The full
+		// text is in the Elasticsearch logs.
 		return n, fmt.Errorf(
-			"item with key=%s %s failure: [%s] %s: %s",
-			itemResponse.ID,
+			"item with key_hash=%s %s failure: status %d [%s], reason of %d bytes (hash %s), caused_by of %d bytes",
+			hashOf(itemResponse.ID),
 			operationType,
+			itemResponse.Status,
 			itemResponse.Error.Type,
-			itemResponse.Error.Reason,
-			itemResponse.Error.CausedBy,
+			len(itemResponse.Error.Reason),
+			hashOf(itemResponse.Error.Reason),
+			len(itemResponse.Error.CausedBy),
 		)
 	}
 
@@ -269,16 +275,16 @@ func (d *Destination) prepareBulkRequestPayload(records []opencdc.Record) (*byte
 
 		case op == opencdc.OperationSnapshot || op == opencdc.OperationCreate || op == opencdc.OperationUpdate:
 			if err := d.client.WriteUpsertOperation(data, key, record, index); err != nil {
-				return nil, fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
+				return nil, fmt.Errorf("failed to prepare metadata for key_hash=%s: %w", hashOf(key), err)
 			}
 
 		case op == opencdc.OperationDelete:
 			if err := d.client.WriteDeleteOperation(data, key, index); err != nil {
-				return nil, fmt.Errorf("failed to prepare metadata with key=%s: %w", key, err)
+				return nil, fmt.Errorf("failed to prepare metadata for key_hash=%s: %w", hashOf(key), err)
 			}
 
 		default:
-			return nil, fmt.Errorf("operation %v on record %v not supported", record.Operation, record.Key)
+			return nil, fmt.Errorf("operation %v on record with key_hash=%s not supported", record.Operation, hashOf(key))
 		}
 	}
 
