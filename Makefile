@@ -3,7 +3,7 @@
 VERSION=$(shell git describe --tags --dirty --always)
 
 build:
-	go build -ldflags "-X 'github.com/conduitio/conduit-connector-elasticsearch.version=${VERSION}'" -o conduit-connector-elasticsearch cmd/connector/main.go
+	go build -trimpath -ldflags "-X 'github.com/conduitio/conduit-connector-elasticsearch.version=${VERSION}'" -o conduit-connector-elasticsearch cmd/connector/main.go
 
 ES_VERSIONS := 5 6 7 8
 
