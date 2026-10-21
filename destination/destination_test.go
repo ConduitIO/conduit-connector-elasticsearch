@@ -228,7 +228,7 @@ func TestDestination_Write_FailedItemIsNeverReportedWritten(t *testing.T) {
 				return
 			}
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "key="+tc.wantFail+" ")
+			require.Contains(t, err.Error(), "key_hash="+hashOf(tc.wantFail)+" ")
 			// The contract with the SDK: records[n] is the failed one.
 			require.Less(t, n, size, "a failed batch must never report every record written")
 		})
@@ -432,10 +432,33 @@ func TestDestination_Write_404(t *testing.T) {
 			require.Equal(t, tc.wantN, n)
 			if tc.wantErr {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "key=k1 ")
+				require.Contains(t, err.Error(), "key_hash="+hashOf("k1")+" ")
 			} else {
 				require.NoError(t, err)
 			}
 		})
 	}
+}
+
+// TestDestination_Write_ErrorsDoNotContainKeysOrDocumentContent: Elasticsearch
+// quotes the offending field value in a mapping error, and the document ID is
+// the record key. Neither may reach the error, which can end up in the DLQ,
+// the API and CLI output.
+func TestDestination_Write_ErrorsDoNotContainKeysOrDocumentContent(t *testing.T) {
+	items := []bulkResponseItems{{Update: &bulkResponseItem{
+		ID:     "customer-SECRET-4711",
+		Status: http.StatusBadRequest,
+		Error: &bulkResponseItemError{
+			Type:     "mapper_parsing_exception",
+			Reason:   "failed to parse field [age] of type [integer] in document with id 'customer-SECRET-4711'. Preview of field's value: 'ssn-SECRET-123'",
+			CausedBy: json.RawMessage(`{"reason":"For input string: \"ssn-SECRET-123\""}`),
+		},
+	}}}
+	d := newTestDestination(t, items)
+
+	_, err := d.Write(context.Background(), testRecords(1))
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "SECRET")
+	require.Contains(t, err.Error(), "mapper_parsing_exception")
+	require.Contains(t, err.Error(), "status 400")
 }
