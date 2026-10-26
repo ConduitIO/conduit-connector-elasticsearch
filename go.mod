@@ -4,7 +4,7 @@ go 1.26.9
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/conduitio/conduit-commons v0.11.0
+	github.com/conduitio/conduit-commons v0.12.1
 	github.com/conduitio/conduit-connector-sdk v0.17.0
 	github.com/elastic/go-elasticsearch/v5 v5.6.1
 	github.com/elastic/go-elasticsearch/v6 v6.8.10
