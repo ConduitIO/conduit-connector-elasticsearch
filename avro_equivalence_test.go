@@ -50,6 +50,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -661,7 +662,7 @@ func compareDestination(t *testing.T, cases []destinationCase, wantDst map[strin
 		compareField(t, g.Name, "decode error", w.DecodeError, g.DecodeError)
 		compareField(t, g.Name, "bulk body", w.Bulk, g.Bulk)
 		compareField(t, g.Name, "written", fmt.Sprint(w.Written), fmt.Sprint(g.Written))
-		compareField(t, g.Name, "write error", w.WriteError, g.WriteError)
+		compareField(t, g.Name, "write error", normalizeKeyInError(w.WriteError), normalizeKeyInError(g.WriteError))
 	}
 	for name := range wantDst {
 		t.Errorf("%s: fixture has no case", name)
@@ -705,6 +706,16 @@ func compareSource(t *testing.T, want, got []sourceFixture) {
 		compareField(t, g.Name, "payload", w.Payload, g.Payload)
 		compareField(t, g.Name, "payload schema", w.PayloadSchema, g.PayloadSchema)
 	}
+}
+
+// preparedKey matches the key part of the "failed to prepare metadata" error.
+// The frozen fixtures were taken when the error repeated the record key
+// ("with key={...}"); it now carries a per-process salted hash ("for
+// key_hash=<hex>"), which cannot be frozen. Both forms compare equal.
+var preparedKey = regexp.MustCompile(`failed to prepare metadata (with key=\{.*?\}|for key_hash=[0-9a-f]+):`)
+
+func normalizeKeyInError(s string) string {
+	return preparedKey.ReplaceAllString(s, "failed to prepare metadata for the record key:")
 }
 
 func compareField(t *testing.T, name, what, want, got string) {
